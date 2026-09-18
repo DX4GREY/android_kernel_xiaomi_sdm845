@@ -1,38 +1,58 @@
 name: Build Beryllium NetHunter Kernel
 
+env:
+  COSMIC_CLANG_REF: 13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+
 on:
   workflow_dispatch:
   push:
     branches:
+      - lineage-22.2
       - main
       - master
     paths:
-      - '**.c'
-      - '**.h'
-      - '**.S'
-      - '**.dts'
-      - '**.dtsi'
+      - '**/*.c'
+      - '**/*.h'
+      - '**/*.S'
+      - '**/*.s'
+      - '**/*.dts'
+      - '**/*.dtsi'
       - '**/Kbuild'
       - '**/Makefile'
+      - '**/Kconfig*'
+      - '**/*.mk'
       - '**/*_defconfig'
       - 'arch/arm64/configs/**'
       - '*.config'
+      - 'drivers/**'
+      - 'include/**'
+      - 'scripts/**'
       - 'nethunter.config'
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
       - 'make-anykernel.sh'
   pull_request:
+    branches:
+      - lineage-22.2
+      - main
+      - master
     paths:
-      - '**.c'
-      - '**.h'
-      - '**.S'
-      - '**.dts'
-      - '**.dtsi'
+      - '**/*.c'
+      - '**/*.h'
+      - '**/*.S'
+      - '**/*.s'
+      - '**/*.dts'
+      - '**/*.dtsi'
       - '**/Kbuild'
       - '**/Makefile'
+      - '**/Kconfig*'
+      - '**/*.mk'
       - '**/*_defconfig'
       - 'arch/arm64/configs/**'
       - '*.config'
+      - 'drivers/**'
+      - 'include/**'
+      - 'scripts/**'
       - 'nethunter.config'
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
@@ -75,7 +95,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: toolchains/cosmic-clang
-          key: cosmic-clang-${{ runner.os }}-13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+          key: cosmic-clang-${{ runner.os }}-${{ env.COSMIC_CLANG_REF }}
 
       - name: Fetch Cosmic Clang toolchain
         if: steps.cosmic-clang-cache.outputs.cache-hit != 'true'
@@ -85,16 +105,16 @@ jobs:
           git -C toolchains/cosmic-clang remote add origin \
             https://gitlab.com/DX4GREY/cosmic-clang.git
           git -C toolchains/cosmic-clang fetch --depth 1 origin \
-            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+            "${COSMIC_CLANG_REF}"
           git -C toolchains/cosmic-clang checkout --detach \
-            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+            "${COSMIC_CLANG_REF}"
 
       - name: Verify Cosmic Clang toolchain
         env:
           TOOLCHAIN: ${{ github.workspace }}/toolchains/cosmic-clang
         run: |
           test "$(git -C "$TOOLCHAIN" rev-parse HEAD)" = \
-            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+            "$COSMIC_CLANG_REF"
           test -x "$TOOLCHAIN/bin/clang"
           test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-ld.bfd"
           test -x "$TOOLCHAIN/bin/arm-linux-gnueabi-ld.bfd"
@@ -109,10 +129,23 @@ jobs:
           AARCH64_LD: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-ld.bfd
           ARM32_PREFIX: ${{ github.workspace }}/toolchains/cosmic-clang/bin/arm-linux-gnueabi-
           CC: clang
-          JOBS: 2
           MIN_FREE_GB: 8
           KCFLAGS: -Wno-error=enum-conversion -Wno-error=self-assign -Wno-error=varargs
-        run: ./build-beryllium.sh --no-setup
+        run: |
+          # The kernel build is out-of-tree. Remove only generated leftovers
+          # that can make the build helper reject the checkout.
+          rm -rf include/config
+          rm -f .config
+          git diff --check
+          ./build-beryllium.sh --no-setup
+
+      - name: Validate kernel output
+        run: |
+          test -s out-beryllium/arch/arm64/boot/Image.gz-dtb
+          test -s out-beryllium/arch/arm64/boot/Image.gz
+          grep -q '^CONFIG_FEATURE_MONITOR_MODE_SUPPORT=y$' out-beryllium/.config
+          grep -q '^CONFIG_FEATURE_FRAME_INJECTION_SUPPORT=y$' out-beryllium/.config
+          sha256sum out-beryllium/arch/arm64/boot/Image.gz-dtb
 
       - name: Package AnyKernel3
         env:
