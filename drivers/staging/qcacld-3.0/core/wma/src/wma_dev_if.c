@@ -836,6 +836,52 @@ QDF_STATUS wma_vdev_detach(tp_wma_handle wma_handle,
 		goto send_rsp;
 	}
 
+	/*
+	 * Monitor vdevs do not use the normal DELETE_BSS stop path.  Do not
+	 * delete the self peer while the vdev is still active: SDM845 firmware
+	 * can assert in ratectrl during that sequence.  The stop response handler
+	 * continues this request with VDEV_DOWN, peer deletion and VDEV_DELETE.
+	 */
+	if (iface->type == WMI_VDEV_TYPE_MONITOR) {
+		struct del_sta_self_rsp_params *monitor_detach;
+
+		monitor_detach = qdf_mem_malloc(sizeof(*monitor_detach));
+		if (!monitor_detach) {
+			status = QDF_STATUS_E_NOMEM;
+			goto send_rsp;
+		}
+
+		monitor_detach->self_sta_param = pdel_sta_self_req_param;
+		monitor_detach->generate_rsp = generateRsp;
+		iface->del_staself_req = pdel_sta_self_req_param;
+
+		if (!wma_fill_vdev_req(wma_handle, vdev_id,
+					WMA_DEL_STA_SELF_REQ,
+					WMA_TARGET_REQ_TYPE_VDEV_STOP,
+					monitor_detach,
+					WMA_VDEV_STOP_REQUEST_TIMEOUT)) {
+			iface->del_staself_req = NULL;
+			qdf_mem_free(monitor_detach);
+			status = QDF_STATUS_E_NOMEM;
+			goto send_rsp;
+		}
+
+		if (wma_send_vdev_stop_to_fw(wma_handle, vdev_id)) {
+			WMA_LOGE("%s: failed to stop monitor vdev %d",
+				 __func__, vdev_id);
+			wma_remove_vdev_req(wma_handle, vdev_id,
+					WMA_TARGET_REQ_TYPE_VDEV_STOP);
+			iface->del_staself_req = NULL;
+			qdf_mem_free(monitor_detach);
+			status = QDF_STATUS_E_FAILURE;
+			goto send_rsp;
+		}
+
+		WMA_LOGD("%s: monitor vdev %d stop sent; waiting for response",
+			 __func__, vdev_id);
+		return status;
+	}
+
 	if (qdf_atomic_read(&iface->bss_status) == WMA_BSS_STATUS_STARTED) {
 		req_msg = wma_find_vdev_req(wma_handle, vdev_id,
 				WMA_TARGET_REQ_TYPE_VDEV_STOP, false);
@@ -850,28 +896,6 @@ QDF_STATUS wma_vdev_detach(tp_wma_handle wma_handle,
 		return status;
 	}
 	iface->is_del_sta_defered = false;
-
-	/*
-	 * The SDM845 monitor firmware does not tolerate deleting the monitor
-	 * self-peer.  It asserts in ratectrl while freeing the peer context,
-	 * which leaves WMA waiting forever for WMA_DEL_STA_SELF_REQ.  Remove
-	 * only the host-side peer object and let VDEV_DELETE clean up the peer
-	 * in firmware after the monitor vdev has been stopped and brought down.
-	 */
-	if (iface->type == WMI_VDEV_TYPE_MONITOR) {
-		if (iface->peer_count) {
-			wma_remove_objmgr_peer(wma_handle, vdev_id,
-					pdel_sta_self_req_param->self_mac_addr);
-			iface->peer_count--;
-		}
-
-		wma_handle_monitor_mode_vdev_detach(wma_handle, vdev_id);
-		status = wma_handle_vdev_detach(wma_handle,
-					pdel_sta_self_req_param, generateRsp);
-		if (QDF_IS_STATUS_SUCCESS(status))
-			iface->vdev_active = false;
-		return status;
-	}
 
 	if (wma_vdev_uses_self_peer(iface->type, iface->sub_type)) {
 		status = wma_self_peer_remove(wma_handle,
@@ -2305,10 +2329,6 @@ int wma_vdev_stop_resp_handler(void *handle, uint8_t *cmd_param_info,
 
 	WMA_LOGD("%s: Enter", __func__);
 
-	/* Ignore stop_response in Monitor mode */
-	if (cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE)
-		return QDF_STATUS_SUCCESS;
-
 	param_buf = (WMI_VDEV_STOPPED_EVENTID_param_tlvs *) cmd_param_info;
 	if (!param_buf) {
 		WMA_LOGE("Invalid event buffer");
@@ -2397,6 +2417,52 @@ int wma_vdev_stop_resp_handler(void *handle, uint8_t *cmd_param_info,
 			goto free_req_msg;
 
 		wma_send_del_bss_response(wma, req_msg, resp_event->vdev_id);
+	} else if (req_msg->msg_type == WMA_DEL_STA_SELF_REQ) {
+		struct del_sta_self_rsp_params *monitor_detach =
+			(struct del_sta_self_rsp_params *)req_msg->user_data;
+		struct del_sta_self_params *params;
+		uint8_t generate_rsp;
+
+		if (!monitor_detach || iface->type != WMI_VDEV_TYPE_MONITOR) {
+			WMA_LOGE("%s: invalid monitor detach request for vdev %d",
+				 __func__, resp_event->vdev_id);
+			status = -EINVAL;
+			goto free_req_msg;
+		}
+
+		params = monitor_detach->self_sta_param;
+		generate_rsp = monitor_detach->generate_rsp;
+		WMA_LOGD("%s: monitor vdev %d stopped; sending vdev down",
+			 __func__, resp_event->vdev_id);
+
+		if (wma_send_vdev_down_to_fw(wma, resp_event->vdev_id) !=
+			QDF_STATUS_SUCCESS)
+			WMA_LOGE("%s: failed to send monitor vdev down %d",
+				 __func__, resp_event->vdev_id);
+
+		qdf_atomic_set(&iface->bss_status, WMA_BSS_STATUS_STOPPED);
+		wma_vdev_set_mlme_state(wma, resp_event->vdev_id,
+					WLAN_VDEV_S_STOP);
+
+		status = wma_self_peer_remove(wma, params, generate_rsp);
+		if (QDF_IS_STATUS_ERROR(status)) {
+			WMA_LOGE("%s: monitor self-peer removal failed for vdev %d",
+				 __func__, resp_event->vdev_id);
+			if (generate_rsp) {
+				status = wma_handle_vdev_detach(wma, params,
+							generate_rsp);
+				if (QDF_IS_STATUS_ERROR(status))
+					cds_trigger_recovery(QDF_REASON_UNSPECIFIED);
+			} else {
+				iface->del_staself_req = NULL;
+				qdf_mem_free(params);
+			}
+		} else if (!wmi_service_enabled(wma->wmi_handle,
+						wmi_service_sync_delete_cmds)) {
+			status = wma_handle_vdev_detach(wma, params, generate_rsp);
+		}
+
+		qdf_mem_free(monitor_detach);
 	} else if (req_msg->msg_type == WMA_SET_LINK_STATE) {
 		tpLinkStateParams params =
 			(tpLinkStateParams) req_msg->user_data;
