@@ -540,7 +540,7 @@ int mini_isp_pure_bypass(u16 mini_isp_mode)
 							1, &offset);
 				file_filp->f_pos = offset;
 				file_total_size = file_total_size - 1;
-				if ((allocated_memmory[0] == 'x')) {
+				if (allocated_memmory[0] == 'x') {
 					vfs_read(file_filp,
 						(char *)allocated_memmory,
 						8, &offset);

@@ -318,7 +318,7 @@ static int mlx4_comm_cmd_poll(struct mlx4_dev *dev, u8 cmd, u16 param,
 		/* check if the slave is trying to boot in the middle of
 		 * FLR process. The only non-zero result in the RESET command
 		 * is MLX4_DELAY_RESET_SLAVE*/
-		if ((MLX4_COMM_CMD_RESET == cmd)) {
+		if (MLX4_COMM_CMD_RESET == cmd) {
 			err = MLX4_DELAY_RESET_SLAVE;
 			goto out;
 		} else {

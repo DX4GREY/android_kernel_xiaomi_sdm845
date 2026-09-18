@@ -852,7 +852,7 @@ static int speedtch_bind(struct usbatm_data *usbatm,
 		for (i = 0; i < desc->desc.bNumEndpoints; i++) {
 			const struct usb_endpoint_descriptor *endpoint_desc = &desc->endpoint[i].desc;
 
-			if ((endpoint_desc->bEndpointAddress == target_address)) {
+			if (endpoint_desc->bEndpointAddress == target_address) {
 				use_isoc =
 					usb_endpoint_xfer_isoc(endpoint_desc);
 				break;

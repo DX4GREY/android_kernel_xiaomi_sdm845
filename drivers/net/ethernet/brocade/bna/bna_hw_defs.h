@@ -242,7 +242,7 @@ do {									\
 {									\
 	u32 intx_mask;						\
 	struct bna_ib *ib = _ib;					\
-	if ((ib->intr_type == BNA_INTR_T_INTX)) {			\
+	if (ib->intr_type == BNA_INTR_T_INTX) {			\
 		bna_intx_disable((_bna), intx_mask);			\
 		intx_mask &= ~(ib->intr_vector);			\
 		bna_intx_enable((_bna), intx_mask);			\

@@ -232,7 +232,7 @@ static void sh4_flush_cache_page(void *args)
 	if (!(pte_val(*pte) & _PAGE_PRESENT))
 		return;
 
-	if ((vma->vm_mm == current->active_mm))
+	if (vma->vm_mm == current->active_mm)
 		vaddr = NULL;
 	else {
 		/*

@@ -1380,7 +1380,7 @@ static int musb_gadget_set_halt(struct usb_ep *ep, int value)
 
 	spin_lock_irqsave(&musb->lock, flags);
 
-	if ((USB_ENDPOINT_XFER_ISOC == musb_ep->type)) {
+	if (USB_ENDPOINT_XFER_ISOC == musb_ep->type) {
 		status = -EINVAL;
 		goto done;
 	}
