@@ -8,6 +8,7 @@ OUTPUT_DIR="${HEADERS_OUTPUT:-${ROOT_DIR}/out-headers}"
 PACKAGE_NAME="${PACKAGE_NAME:-linux-headers-beryllium}"
 DO_PREPARE=1
 KEEP_STAGING="${KEEP_STAGING:-0}"
+TOOLCHAIN_DIR="${TOOLCHAIN_DIR:-${ROOT_DIR}/../toolchains/cosmic-clang-master}"
 
 usage() {
     cat <<'EOF'
@@ -25,6 +26,7 @@ Environment:
   HEADERS_OUTPUT  Direktori output .deb (default: ./out-headers)
   PACKAGE_NAME    Nama paket Debian (default: linux-headers-beryllium)
   KEEP_STAGING=1  Pertahankan staging directory untuk inspeksi
+  TOOLCHAIN_DIR   Root Cosmic Clang (default: ../toolchains/cosmic-clang-master)
 
 Contoh:
   ./make-linux-headers-deb.sh
@@ -62,6 +64,38 @@ if [[ "$BUILD_OUT" != /* ]]; then
 fi
 if [[ "$OUTPUT_DIR" != /* ]]; then
     OUTPUT_DIR="${ROOT_DIR}/${OUTPUT_DIR}"
+fi
+
+# modules_prepare builds the ARM32 compat vDSO when CONFIG_COMPAT_VDSO=y.
+# With LLVM=1, clang needs an explicit ARM32 toolchain prefix; otherwise it
+# falls back to the generic toolchain `ld`, which cannot link armelf_linux_eabi.
+if [[ -x "${TOOLCHAIN_DIR}/bin/clang" ]]; then
+    export PATH="${TOOLCHAIN_DIR}/bin:${PATH}"
+fi
+
+export ARCH=arm64
+export CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+export CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32:-arm-linux-gnueabi-}"
+
+if [[ -x "${TOOLCHAIN_DIR}/bin/${CROSS_COMPILE_ARM32}ld.bfd" ]]; then
+    ARM32_PREFIX="${TOOLCHAIN_DIR}/bin/${CROSS_COMPILE_ARM32}"
+else
+    ARM32_LD="$(command -v "${CROSS_COMPILE_ARM32}ld.bfd" || true)"
+    if [[ -z "${ARM32_LD}" ]]; then
+        echo "Error: ARM32 linker tidak ditemukan untuk prefix ${CROSS_COMPILE_ARM32}" >&2
+        exit 1
+    fi
+    ARM32_PREFIX="${ARM32_LD%ld.bfd}"
+fi
+
+if [[ -x "${TOOLCHAIN_DIR}/bin/${CROSS_COMPILE}ld.bfd" ]]; then
+    AARCH64_LD="${TOOLCHAIN_DIR}/bin/${CROSS_COMPILE}ld.bfd"
+else
+    AARCH64_LD="$(command -v "${CROSS_COMPILE}ld.bfd" || true)"
+    if [[ -z "${AARCH64_LD}" ]]; then
+        echo "Error: AArch64 linker tidak ditemukan untuk prefix ${CROSS_COMPILE}" >&2
+        exit 1
+    fi
 fi
 
 CONFIG_FILE="${BUILD_OUT}/.config"
@@ -123,6 +157,10 @@ if (( DO_PREPARE )); then
         ARCH=arm64 \
         LLVM=1 \
         LLVM_IAS=1 \
+        LD="$AARCH64_LD" \
+        CROSS_COMPILE="$CROSS_COMPILE" \
+        CROSS_COMPILE_ARM32="$CROSS_COMPILE_ARM32" \
+        CLANG_PREFIX32="--prefix=${ARM32_PREFIX}" \
         HOSTCC="${HOSTCC:-cc}" \
         modules_prepare
 fi
