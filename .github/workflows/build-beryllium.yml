@@ -1,0 +1,137 @@
+name: Build Beryllium NetHunter Kernel
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - '**.c'
+      - '**.h'
+      - '**.S'
+      - '**.dts'
+      - '**.dtsi'
+      - '**/Kbuild'
+      - '**/Makefile'
+      - '**/*_defconfig'
+      - 'arch/arm64/configs/**'
+      - '*.config'
+      - 'nethunter.config'
+      - '.github/workflows/build-beryllium.yml'
+      - 'build-beryllium.sh'
+      - 'make-anykernel.sh'
+  pull_request:
+    paths:
+      - '**.c'
+      - '**.h'
+      - '**.S'
+      - '**.dts'
+      - '**.dtsi'
+      - '**/Kbuild'
+      - '**/Makefile'
+      - '**/*_defconfig'
+      - 'arch/arm64/configs/**'
+      - '*.config'
+      - 'nethunter.config'
+      - '.github/workflows/build-beryllium.yml'
+      - 'build-beryllium.sh'
+      - 'make-anykernel.sh'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: beryllium-kernel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build kernel and AnyKernel3 package
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            bc \
+            bison \
+            device-tree-compiler \
+            flex \
+            libelf-dev \
+            libncurses-dev \
+            libssl-dev \
+            rsync \
+            unzip \
+            zip
+
+      - name: Cache Cosmic Clang
+        id: cosmic-clang-cache
+        uses: actions/cache@v4
+        with:
+          path: toolchains/cosmic-clang
+          key: cosmic-clang-${{ runner.os }}-13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+
+      - name: Fetch Cosmic Clang toolchain
+        if: steps.cosmic-clang-cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p toolchains/cosmic-clang
+          git -C toolchains/cosmic-clang init
+          git -C toolchains/cosmic-clang remote add origin \
+            https://gitlab.com/DX4GREY/cosmic-clang.git
+          git -C toolchains/cosmic-clang fetch --depth 1 origin \
+            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+          git -C toolchains/cosmic-clang checkout --detach \
+            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+
+      - name: Verify Cosmic Clang toolchain
+        env:
+          TOOLCHAIN: ${{ github.workspace }}/toolchains/cosmic-clang
+        run: |
+          test "$(git -C "$TOOLCHAIN" rev-parse HEAD)" = \
+            13e2ee51feef4ba8db4a2425f2b0387d15a7b480
+          test -x "$TOOLCHAIN/bin/clang"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-ld.bfd"
+          test -x "$TOOLCHAIN/bin/arm-linux-gnueabi-ld.bfd"
+          "$TOOLCHAIN/bin/clang" --version
+
+      - name: Add Cosmic Clang to PATH
+        run: echo "$GITHUB_WORKSPACE/toolchains/cosmic-clang/bin" >> "$GITHUB_PATH"
+
+      - name: Build kernel
+        env:
+          BUILD_OUT: ${{ github.workspace }}/out-beryllium
+          AARCH64_LD: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-ld.bfd
+          ARM32_PREFIX: ${{ github.workspace }}/toolchains/cosmic-clang/bin/arm-linux-gnueabi-
+          CC: clang
+          JOBS: 2
+          MIN_FREE_GB: 8
+          KCFLAGS: -Wno-error=enum-conversion -Wno-error=self-assign -Wno-error=varargs
+        run: ./build-beryllium.sh --no-setup
+
+      - name: Package AnyKernel3
+        env:
+          ANYKERNEL_OUTPUT: ${{ github.workspace }}/out-anykernel
+          ZIP_NAME: AnyKernel3-beryllium-${{ github.sha }}.zip
+        run: ./make-anykernel.sh --with-modules
+
+      - name: Upload kernel image
+        uses: actions/upload-artifact@v4
+        with:
+          name: Image.gz-dtb-${{ github.sha }}
+          path: out-beryllium/arch/arm64/boot/Image.gz-dtb
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload AnyKernel3 package
+        uses: actions/upload-artifact@v4
+        with:
+          name: AnyKernel3-beryllium-${{ github.sha }}
+          path: out-anykernel/AnyKernel3-beryllium-${{ github.sha }}.zip
+          if-no-files-found: error
+          retention-days: 14

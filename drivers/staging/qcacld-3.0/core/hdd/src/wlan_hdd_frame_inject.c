@@ -289,6 +289,10 @@ QDF_STATUS hdd_frame_inject_disable(struct hdd_adapter *adapter)
 	injection_ctx = adapter->injection_ctx;
 	injection_ctx->is_monitor_mode = false;
 
+	/* Stop the producer before the monitor vdev is torn down. */
+	qdf_cancel_work(&injection_ctx->queue_work);
+	qdf_flush_work(&injection_ctx->queue_work);
+
 	hdd_inject_info("Frame injection disabled for adapter %pK", adapter);
 	return QDF_STATUS_SUCCESS;
 }

@@ -619,7 +619,14 @@ static QDF_STATUS wma_handle_vdev_detach(tp_wma_handle wma_handle,
 		goto out;
 	}
 
-	if (cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE)
+	/*
+	 * The monitor self-peer must be removed only after the monitor vdev is
+	 * stopped and brought down.  On the SDM845 firmware, deleting the peer
+	 * while the monitor vdev is still active trips ratectrl's peer-context
+	 * cleanup assertion.
+	 */
+	if (cds_get_conparam() == QDF_GLOBAL_MONITOR_MODE &&
+	    iface->type != WMI_VDEV_TYPE_MONITOR)
 		wma_handle_monitor_mode_vdev_detach(wma_handle, vdev_id);
 
 	status = wmi_unified_vdev_delete_send(wma_handle->wmi_handle, vdev_id);
@@ -843,6 +850,9 @@ QDF_STATUS wma_vdev_detach(tp_wma_handle wma_handle,
 		return status;
 	}
 	iface->is_del_sta_defered = false;
+
+	if (iface->type == WMI_VDEV_TYPE_MONITOR)
+		wma_handle_monitor_mode_vdev_detach(wma_handle, vdev_id);
 
 	if (wma_vdev_uses_self_peer(iface->type, iface->sub_type)) {
 		status = wma_self_peer_remove(wma_handle,

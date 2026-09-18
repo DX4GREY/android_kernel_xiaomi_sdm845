@@ -4606,7 +4606,14 @@ int hdd_vdev_destroy(struct hdd_adapter *adapter)
 	if (!vdev)
 		return -EINVAL;
 
-	ucfg_pmo_del_wow_pattern(vdev);
+	/*
+	 * Monitor vdevs never install WoW patterns.  Sending the generic
+	 * pattern-delete command for monitor vdev 0 makes the SDM845 firmware
+	 * enter its WoW teardown path while the monitor self-peer is being
+	 * removed, which can trigger a firmware assert during ifdown.
+	 */
+	if (adapter->device_mode != QDF_MONITOR_MODE)
+		ucfg_pmo_del_wow_pattern(vdev);
 
 	status = ucfg_reg_11d_vdev_delete_update(vdev);
 
@@ -6381,6 +6388,22 @@ QDF_STATUS hdd_stop_adapter_ext(struct hdd_context *hdd_ctx,
 		break;
 
 	case QDF_MONITOR_MODE:
+		/*
+		 * Injection uses a firmware-only helper vdev.  It must be
+		 * stopped while WMI is still alive and before the monitor vdev
+		 * teardown starts, otherwise firmware can wait forever on the
+		 * orphaned helper during ifdown.
+		 */
+		if (QDF_IS_STATUS_ERROR(hdd_frame_inject_disable(adapter)))
+			hdd_warn("Failed to disable frame injection before monitor stop");
+
+		{
+			tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+			if (wma)
+				wma_injection_pre_stop_cleanup(wma);
+		}
+
 		if (wlan_hdd_is_session_type_monitor(QDF_MONITOR_MODE) &&
 		    adapter->vdev) {
 			ucfg_pkt_capture_deregister_callbacks(adapter->vdev);
@@ -14765,19 +14788,6 @@ static void hdd_stop_present_mode(struct hdd_context *hdd_ctx,
 		hdd_info("Release wakelock for monitor mode!");
 		qdf_wake_lock_release(&hdd_ctx->monitor_mode_wakelock,
 				      WIFI_POWER_EVENT_WAKELOCK_MONITOR_MODE);
-
-		/*
-		 * Destroy the hidden injection STA helper vdev BEFORE
-		 * stopping adapters.  The firmware asserts in
-		 * dispatch_wlan_pdev_cmds if the orphaned STA vdev is
-		 * still present when the monitor vdev is torn down.
-		 */
-		{
-			tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
-
-			if (wma)
-				wma_injection_pre_stop_cleanup(wma);
-		}
 
 		/* fallthrough */
 	case QDF_GLOBAL_MISSION_MODE:

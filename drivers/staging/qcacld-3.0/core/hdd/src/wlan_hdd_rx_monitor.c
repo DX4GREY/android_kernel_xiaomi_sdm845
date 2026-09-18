@@ -26,6 +26,7 @@
 #include "wlan_hdd_rx_monitor.h"
 #ifdef FEATURE_FRAME_INJECTION_SUPPORT
 #include "wlan_hdd_frame_inject.h"
+#include "wma_frame_inject.h"
 #endif
 
 /**
@@ -163,6 +164,12 @@ int hdd_disable_monitor_mode(struct net_device *dev)
 	if (adapter &&
 	    QDF_IS_STATUS_ERROR(hdd_frame_inject_disable(adapter)))
 		hdd_warn("Failed to disable frame injection");
+	{
+		tp_wma_handle wma = cds_get_context(QDF_MODULE_ID_WMA);
+
+		if (wma)
+			wma_injection_pre_stop_cleanup(wma);
+	}
 #endif
 
 	vdev = (struct cdp_vdev *)cdp_get_vdev_from_vdev_id(soc,

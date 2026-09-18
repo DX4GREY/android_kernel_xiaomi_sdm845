@@ -116,6 +116,7 @@ export CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32:-arm-linux-gnueabi-}"
 MAKE_ARGS=(
     "O=${BUILD_OUT}"
     "ARCH=${ARCH}"
+    "CC=${CC:-clang}"
     "LLVM=1"
     "LLVM_IAS=1"
     "LD=${AARCH64_LD}"
