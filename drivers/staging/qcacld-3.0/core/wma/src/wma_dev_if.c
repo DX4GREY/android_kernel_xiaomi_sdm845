@@ -851,8 +851,27 @@ QDF_STATUS wma_vdev_detach(tp_wma_handle wma_handle,
 	}
 	iface->is_del_sta_defered = false;
 
-	if (iface->type == WMI_VDEV_TYPE_MONITOR)
+	/*
+	 * The SDM845 monitor firmware does not tolerate deleting the monitor
+	 * self-peer.  It asserts in ratectrl while freeing the peer context,
+	 * which leaves WMA waiting forever for WMA_DEL_STA_SELF_REQ.  Remove
+	 * only the host-side peer object and let VDEV_DELETE clean up the peer
+	 * in firmware after the monitor vdev has been stopped and brought down.
+	 */
+	if (iface->type == WMI_VDEV_TYPE_MONITOR) {
+		if (iface->peer_count) {
+			wma_remove_objmgr_peer(wma_handle, vdev_id,
+					pdel_sta_self_req_param->self_mac_addr);
+			iface->peer_count--;
+		}
+
 		wma_handle_monitor_mode_vdev_detach(wma_handle, vdev_id);
+		status = wma_handle_vdev_detach(wma_handle,
+					pdel_sta_self_req_param, generateRsp);
+		if (QDF_IS_STATUS_SUCCESS(status))
+			iface->vdev_active = false;
+		return status;
+	}
 
 	if (wma_vdev_uses_self_peer(iface->type, iface->sub_type)) {
 		status = wma_self_peer_remove(wma_handle,
