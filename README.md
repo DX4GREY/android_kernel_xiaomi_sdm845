@@ -123,18 +123,19 @@ modprobe wlan
 
 ## Wrapper `airmon-ng`
 
-Wrapper berada di `tools/airmon-ng-qcacld`. Wrapper tidak mengganti `airmon-ng` asli secara otomatis agar installer tidak menimpa file userspace NetHunter yang berbeda-beda lokasinya.
+Wrapper berada di `tools/airmon-ng-qcacld`. AnyKernel memasangnya ke rootfs NetHunter `/data/local/nhsystem/kalifs`; ketika masuk ke chroot Kali, lokasi yang sama terlihat sebagai `/usr/sbin/airmon-ng` atau `/usr/bin/airmon-ng`.
+
+Wrapper dijalankan dari dalam chroot Kali, bukan dari shell Android biasa. Operasi unload/load tetap memengaruhi kernel Android yang sama dan membutuhkan root.
+
+Binary asli dibackup sebagai `airmon-ng.real`, lalu wrapper dipasang di lokasi binary asli. Jika binary tidak ditemukan saat flashing, wrapper tetap tersedia di dalam ZIP dan bisa dipasang manual.
 
 Contoh pemasangan di NetHunter rootfs:
 
 ```sh
-REAL_AIRMON="$(command -v airmon-ng)"
-mkdir -p /usr/local/sbin
-cp tools/airmon-ng-qcacld /usr/local/sbin/airmon-ng
-chmod 0755 /usr/local/sbin/airmon-ng
-
-export AIRMONG_REAL="$REAL_AIRMON"
-export PATH="/usr/local/sbin:$PATH"
+# Jika AnyKernel tidak menemukan binary saat flashing, pasang manual:
+cp tools/airmon-ng-qcacld /data/local/nhsystem/kalifs/usr/sbin/airmon-ng
+chmod 0755 /data/local/nhsystem/kalifs/usr/sbin/airmon-ng
+export AIRMONG_REAL=/data/local/nhsystem/kalifs/usr/sbin/airmon-ng.real
 airmon-ng stop wlan0
 ```
 

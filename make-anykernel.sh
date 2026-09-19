@@ -176,9 +176,9 @@ if (( PACKAGE_MODULES )); then
         > "${module_install_root}/lib/modules/modules.load"
 fi
 
-# Include the userspace stop wrapper alongside the kernel package. It is not
-# installed over the user's existing airmon-ng automatically; copy it to a
-# directory earlier in PATH and point AIRMONG_REAL at the original script.
+# Include the userspace stop wrapper alongside the kernel package. The
+# generated AnyKernel installer also installs it into the fixed NetHunter
+# rootfs when the original airmon-ng is found there.
 SAFE_AIRMON="${ROOT_DIR}/tools/airmon-ng-qcacld"
 if [[ ! -x "$SAFE_AIRMON" ]]; then
     echo "Error: wrapper airmon-ng tidak ditemukan atau tidak executable: $SAFE_AIRMON" >&2
@@ -217,8 +217,34 @@ ramdisk_compression=auto;
 
 . tools/ak3-core.sh;
 
+install_nethunter_airmon_wrapper() {
+    nh_root=/data/local/nhsystem/kalifs;
+    for rel in usr/sbin/airmon-ng usr/bin/airmon-ng usr/local/sbin/airmon-ng usr/local/bin/airmon-ng; do
+        original=\$nh_root/\$rel;
+        backup=\${original}.real;
+        test -f \$original || continue;
+
+        if grep -q 'airmon-ng-qcacld' \$original 2>/dev/null; then
+            ui_print " " "qcacld airmon-ng wrapper sudah terpasang: \$original";
+            return 0;
+        fi;
+
+        if [ ! -f \$backup ]; then
+            cp -fp \$original \$backup || return 1;
+        fi;
+        cp -fp tools/airmon-ng-qcacld \$original || return 1;
+        chmod 0755 \$original;
+        ui_print " " "Memasang qcacld airmon-ng wrapper: \$original";
+        return 0;
+    done;
+
+    ui_print " " "airmon-ng NetHunter tidak ditemukan; wrapper tersedia di tools/airmon-ng-qcacld";
+    return 0;
+}
+
 ui_print " " "Installing NetHunter kernel for beryllium...";
 dump_boot;
+install_nethunter_airmon_wrapper;
 write_boot;
 EOF
 chmod 0755 "${STAGE_DIR}/anykernel.sh"

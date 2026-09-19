@@ -1,4 +1,4 @@
-#!/system/bin/sh
+#!/bin/sh
 #
 # Safe airmon-ng wrapper for qcacld-3.0.
 #
@@ -26,6 +26,18 @@ command_path() {
 if [ -z "$REAL_AIRMON" ]; then
 	SELF_PATH="$0"
 	for candidate in \
+		/usr/sbin/airmon-ng.real \
+		/usr/bin/airmon-ng.real \
+		/usr/local/sbin/airmon-ng.real \
+		/usr/local/bin/airmon-ng.real \
+		/data/local/nhsystem/kalifs/usr/sbin/airmon-ng.real \
+		/data/local/nhsystem/kalifs/usr/bin/airmon-ng.real \
+		/data/local/nhsystem/kalifs/usr/local/sbin/airmon-ng.real \
+		/data/local/nhsystem/kalifs/usr/local/bin/airmon-ng.real \
+		/data/local/nhsystem/kalifs/usr/sbin/airmon-ng \
+		/data/local/nhsystem/kalifs/usr/bin/airmon-ng \
+		/data/local/nhsystem/kalifs/usr/local/sbin/airmon-ng \
+		/data/local/nhsystem/kalifs/usr/local/bin/airmon-ng \
 		/usr/sbin/airmon-ng \
 		/usr/bin/airmon-ng \
 		/system/xbin/airmon-ng \
