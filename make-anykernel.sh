@@ -8,6 +8,7 @@ TEMPLATE_DIR="${ANYKERNEL_TEMPLATE:-${ROOT_DIR}/kali-nethunter-kernel-builder/an
 OUTPUT_DIR="${ANYKERNEL_OUTPUT:-${ROOT_DIR}/out-anykernel}"
 MODULE_DEST="${MODULE_DEST:-system_root}"
 MODULE_MODE=auto
+AARCH64_STRIP="${AARCH64_STRIP:-/usr/bin/aarch64-linux-gnu-strip}"
 
 usage() {
     cat <<'EOF'
@@ -136,12 +137,18 @@ cp -a "${TEMPLATE_DIR}/." "$STAGE_DIR/"
 cp -f "$IMAGE" "$STAGE_DIR/Image.gz-dtb"
 
 if (( PACKAGE_MODULES )); then
+    if [[ ! -x "$AARCH64_STRIP" ]]; then
+        echo "Error: AArch64 strip tidak ditemukan: $AARCH64_STRIP" >&2
+        exit 1
+    fi
     module_install_root="${STAGE_DIR}/modules/${MODULE_DEST}"
     echo "==> Memasang modules ke /${MODULE_DEST}/lib/modules ..."
     mkdir -p "$module_install_root"
     make -C "$ROOT_DIR" \
         O="$BUILD_OUT" \
         ARCH=arm64 \
+        CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32:-arm-linux-gnueabi-}" \
+        STRIP="$AARCH64_STRIP" \
         INSTALL_MOD_PATH="$module_install_root" \
         INSTALL_MOD_STRIP=1 \
         modules_install
@@ -153,7 +160,32 @@ if (( PACKAGE_MODULES )); then
         echo "Error: modules_install tidak menghasilkan file .ko." >&2
         exit 1
     fi
+
+    module_release_dir="$(find "${module_install_root}/lib/modules" \
+        -mindepth 1 -maxdepth 1 -type d -print -quit)"
+    if [[ -z "$module_release_dir" ]]; then
+        echo "Error: direktori release modules tidak ditemukan." >&2
+        exit 1
+    fi
+
+    # Android init/modprobe reads modules.load during boot. Keep both forms:
+    # the versioned Linux layout and the flat Android module-root layout.
+    printf '%s\n' 'kernel/drivers/staging/qcacld-3.0/wlan.ko' \
+        > "${module_release_dir}/modules.load"
+    printf '%s\n' 'wlan' \
+        > "${module_install_root}/lib/modules/modules.load"
 fi
+
+# Include the userspace stop wrapper alongside the kernel package. It is not
+# installed over the user's existing airmon-ng automatically; copy it to a
+# directory earlier in PATH and point AIRMONG_REAL at the original script.
+SAFE_AIRMON="${ROOT_DIR}/tools/airmon-ng-qcacld"
+if [[ ! -x "$SAFE_AIRMON" ]]; then
+    echo "Error: wrapper airmon-ng tidak ditemukan atau tidak executable: $SAFE_AIRMON" >&2
+    exit 1
+fi
+cp -f "$SAFE_AIRMON" "${STAGE_DIR}/tools/airmon-ng-qcacld"
+chmod 0755 "${STAGE_DIR}/tools/airmon-ng-qcacld"
 
 # The local NetHunter AnyKernel updater is intentionally used here. It pushes
 # modules from /modules/system_root (or the selected MODULE_DEST) directly to
@@ -213,5 +245,6 @@ if (( PACKAGE_MODULES )); then
 else
     echo "Modules: tidak dimasukkan"
 fi
+echo "Safe airmon-ng wrapper: tools/airmon-ng-qcacld"
 echo "Staging:"
 echo "  $STAGE_DIR"

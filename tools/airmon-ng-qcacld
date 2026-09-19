@@ -1,0 +1,139 @@
+#!/system/bin/sh
+#
+# Safe airmon-ng wrapper for qcacld-3.0.
+#
+# Install this script earlier in PATH than the real airmon-ng and set
+# AIRMONG_REAL to the original script when autodetection cannot find it.
+# The driver must be built as CONFIG_QCA_CLD_WLAN=m.
+
+set -u
+
+MODULE_NAME="${QCACLD_MODULE:-wlan}"
+STOP_INTERFACE="${QCACLD_INTERFACE:-wlan0}"
+WAIT_SECONDS="${QCACLD_RELOAD_WAIT:-10}"
+STOP_TIMEOUT_SECONDS="${QCACLD_STOP_TIMEOUT:-5}"
+REAL_AIRMON="${AIRMONG_REAL:-}"
+
+die() {
+	 echo "airmon-ng-qcacld: $*" >&2
+	 exit 1
+}
+
+command_path() {
+	 command -v "$1" 2>/dev/null || true
+}
+
+if [ -z "$REAL_AIRMON" ]; then
+	SELF_PATH="$0"
+	for candidate in \
+		/usr/sbin/airmon-ng \
+		/usr/bin/airmon-ng \
+		/system/xbin/airmon-ng \
+		/system/bin/airmon-ng \
+		/data/data/com.offsec.nethunter/files/usr/sbin/airmon-ng \
+		/data/data/com.offsec.nethunter/files/usr/bin/airmon-ng; do
+		[ -x "$candidate" ] || continue
+		[ "$candidate" = "$SELF_PATH" ] && continue
+		REAL_AIRMON="$candidate"
+		break
+	done
+fi
+
+[ -n "$REAL_AIRMON" ] || die "real airmon-ng tidak ditemukan; set AIRMONG_REAL=/path/airmon-ng"
+[ -x "$REAL_AIRMON" ] || die "airmon-ng tidak executable: $REAL_AIRMON"
+
+reload_qcacld() {
+	MODPROBE_BIN="$(command_path modprobe)"
+	RMMOD_BIN="$(command_path rmmod)"
+	INSMOD_BIN="$(command_path insmod)"
+	BUSYBOX_BIN="$(command_path busybox)"
+	MODULE_PATH="${QCACLD_MODULE_PATH:-}"
+
+	module_loaded() {
+		grep -q "^${MODULE_NAME} " /proc/modules 2>/dev/null || [ -d "/sys/module/${MODULE_NAME}" ]
+	}
+
+	if ! module_loaded; then
+		echo "airmon-ng-qcacld: ${MODULE_NAME} belum ter-load; memuat ulang tetap dilanjutkan"
+	else
+		# Ensure no netdev keeps the qcacld module busy during removal.
+		if command_path ip >/dev/null; then
+			ip link set "$STOP_INTERFACE" down 2>/dev/null || true
+		fi
+
+		if [ -n "$MODPROBE_BIN" ]; then
+			"$MODPROBE_BIN" -r "$MODULE_NAME" || die "gagal unload ${MODULE_NAME}"
+		elif [ -n "$RMMOD_BIN" ]; then
+			"$RMMOD_BIN" "$MODULE_NAME" || die "gagal unload ${MODULE_NAME}"
+		elif [ -n "$BUSYBOX_BIN" ]; then
+			"$BUSYBOX_BIN" rmmod "$MODULE_NAME" || die "gagal unload ${MODULE_NAME}"
+		else
+			die "modprobe/rmmod tidak ditemukan"
+		fi
+
+		elapsed=0
+		while module_loaded && [ "$elapsed" -lt "$WAIT_SECONDS" ]; do
+			sleep 1
+			elapsed=$((elapsed + 1))
+		done
+		module_loaded && die "${MODULE_NAME} masih ter-load setelah unload"
+	fi
+
+	if [ -n "$MODPROBE_BIN" ]; then
+		"$MODPROBE_BIN" "$MODULE_NAME" || die "gagal load ${MODULE_NAME}"
+	elif [ -n "$INSMOD_BIN" ] && [ -n "$MODULE_PATH" ]; then
+		"$INSMOD_BIN" "$MODULE_PATH" || die "gagal load ${MODULE_PATH}"
+	elif [ -n "$BUSYBOX_BIN" ] && [ -n "$MODULE_PATH" ]; then
+		"$BUSYBOX_BIN" insmod "$MODULE_PATH" || die "gagal load ${MODULE_PATH}"
+	else
+		die "modprobe tidak ditemukan; set QCACLD_MODULE_PATH bila hanya insmod tersedia"
+	fi
+
+	elapsed=0
+	while ! module_loaded && [ "$elapsed" -lt "$WAIT_SECONDS" ]; do
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	module_loaded || die "${MODULE_NAME} tidak muncul setelah load"
+	echo "airmon-ng-qcacld: ${MODULE_NAME} berhasil unload/load"
+}
+
+run_airmon() {
+	if [ "${1:-}" != stop ] || [ "${2:-}" != "$STOP_INTERFACE" ]; then
+		"$REAL_AIRMON" "$@"
+		return $?
+	fi
+
+	# airmon-ng can remain blocked in the driver during monitor teardown.
+	# Run it separately so a stuck ioctl cannot prevent the module reset.
+	"$REAL_AIRMON" "$@" &
+	airmon_pid=$!
+	elapsed=0
+	while kill -0 "$airmon_pid" 2>/dev/null; do
+		if [ "$elapsed" -ge "$STOP_TIMEOUT_SECONDS" ]; then
+			echo "airmon-ng-qcacld: stop macet; reset ${MODULE_NAME}" >&2
+			kill -TERM "$airmon_pid" 2>/dev/null || true
+			sleep 1
+			kill -KILL "$airmon_pid" 2>/dev/null || true
+			wait "$airmon_pid" 2>/dev/null || true
+			return 124
+		fi
+		sleep 1
+		elapsed=$((elapsed + 1))
+	done
+	wait "$airmon_pid"
+}
+
+run_airmon "$@"
+status=$?
+
+if [ "${1:-}" = stop ] && [ "${2:-}" = "$STOP_INTERFACE" ]; then
+	reload_qcacld
+	reload_status=$?
+	[ "$reload_status" -eq 0 ] || status="$reload_status"
+	# A timeout means the original command was interrupted intentionally;
+	# successful module reset is the successful stop result.
+	[ "$status" -eq 124 ] && status=0
+fi
+
+exit "$status"

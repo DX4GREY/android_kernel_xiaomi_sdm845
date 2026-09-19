@@ -47,6 +47,7 @@ KCFLAGS="${KCFLAGS:--Wno-error=enum-conversion -Wno-error=self-assign -Wno-error
 # Toolchain overrides. The default paths match this workspace.
 AARCH64_LD="${AARCH64_LD:-/usr/bin/aarch64-linux-gnu-ld.bfd}"
 ARM32_PREFIX="${ARM32_PREFIX:-/usr/bin/arm-linux-gnueabi-}"
+AARCH64_OBJCOPY="${AARCH64_OBJCOPY:-${AARCH64_LD%ld.bfd}objcopy}"
 
 if [[ "${BUILD_OUT}" != /* ]]; then
     BUILD_OUT="${ROOT_DIR}/${BUILD_OUT}"
@@ -64,6 +65,11 @@ fi
 
 if [[ ! -x "${AARCH64_LD}" ]]; then
     echo "Error: AArch64 linker tidak ditemukan: ${AARCH64_LD}" >&2
+    exit 1
+fi
+
+if [[ ! -x "${AARCH64_OBJCOPY}" ]]; then
+    echo "Error: AArch64 objcopy tidak ditemukan: ${AARCH64_OBJCOPY}" >&2
     exit 1
 fi
 
@@ -120,6 +126,7 @@ MAKE_ARGS=(
     "LLVM=1"
     "LLVM_IAS=1"
     "LD=${AARCH64_LD}"
+    "OBJCOPY=${AARCH64_OBJCOPY}"
     "CROSS_COMPILE=${CROSS_COMPILE}"
     "CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32}"
     "CLANG_PREFIX32=--prefix=${ARM32_PREFIX}"
@@ -147,11 +154,22 @@ make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" vendor/xiaomi/mi845_defconfig
 
 make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" olddefconfig
 
+if ! grep -q '^CONFIG_QCA_CLD_WLAN=m$' "${BUILD_OUT}/.config"; then
+    echo "Error: qcacld-3.0 harus dibangun sebagai CONFIG_QCA_CLD_WLAN=m." >&2
+    exit 1
+fi
+
 echo "==> Memulai build kernel..."
 make -C "${ROOT_DIR}" \
     -j"${JOBS}" \
     "${MAKE_ARGS[@]}" \
     "${BUILD_TARGETS[@]}"
+
+if [[ " ${BUILD_TARGETS[*]} " == *" modules "* ]] && \
+   [[ ! -s "${BUILD_OUT}/drivers/staging/qcacld-3.0/wlan.ko" ]]; then
+    echo "Error: build tidak menghasilkan qcacld-3.0 module wlan.ko." >&2
+    exit 1
+fi
 
 echo
 echo "Build selesai. Artefak:"

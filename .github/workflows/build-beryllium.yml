@@ -31,6 +31,7 @@ on:
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
       - 'make-anykernel.sh'
+      - 'tools/airmon-ng-qcacld'
   pull_request:
     branches:
       - lineage-22.2
@@ -57,6 +58,7 @@ on:
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
       - 'make-anykernel.sh'
+      - 'tools/airmon-ng-qcacld'
 
 permissions:
   contents: read
@@ -117,6 +119,7 @@ jobs:
             "$COSMIC_CLANG_REF"
           test -x "$TOOLCHAIN/bin/clang"
           test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-ld.bfd"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-objcopy"
           test -x "$TOOLCHAIN/bin/arm-linux-gnueabi-ld.bfd"
           "$TOOLCHAIN/bin/clang" --version
 
@@ -127,6 +130,7 @@ jobs:
         env:
           BUILD_OUT: ${{ github.workspace }}/out-beryllium
           AARCH64_LD: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-ld.bfd
+          AARCH64_OBJCOPY: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-objcopy
           ARM32_PREFIX: ${{ github.workspace }}/toolchains/cosmic-clang/bin/arm-linux-gnueabi-
           CC: clang
           MIN_FREE_GB: 8
@@ -145,13 +149,20 @@ jobs:
           test -s out-beryllium/arch/arm64/boot/Image.gz
           grep -q '^CONFIG_FEATURE_MONITOR_MODE_SUPPORT=y$' out-beryllium/.config
           grep -q '^CONFIG_FEATURE_FRAME_INJECTION_SUPPORT=y$' out-beryllium/.config
+          grep -q '^CONFIG_QCA_CLD_WLAN=m$' out-beryllium/.config
+          test -s out-beryllium/drivers/staging/qcacld-3.0/wlan.ko
+          test -x tools/airmon-ng-qcacld
           sha256sum out-beryllium/arch/arm64/boot/Image.gz-dtb
 
       - name: Package AnyKernel3
         env:
           ANYKERNEL_OUTPUT: ${{ github.workspace }}/out-anykernel
+          AARCH64_STRIP: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-strip
           ZIP_NAME: AnyKernel3-beryllium-${{ github.sha }}.zip
-        run: ./make-anykernel.sh --with-modules
+        run: |
+          ./make-anykernel.sh --with-modules
+          unzip -p "out-anykernel/AnyKernel3-beryllium-${GITHUB_SHA}.zip" \
+            modules/system_root/lib/modules/modules.load | grep -qx wlan
 
       - name: Upload kernel image
         uses: actions/upload-artifact@v4
