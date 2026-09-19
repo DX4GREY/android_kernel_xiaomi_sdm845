@@ -60,6 +60,30 @@ reload_qcacld() {
 	INSMOD_BIN="$(command_path insmod)"
 	BUSYBOX_BIN="$(command_path busybox)"
 	MODULE_PATH="${QCACLD_MODULE_PATH:-}"
+	MODULE_DIR="${QCACLD_MODULE_DIR:-}"
+	if [ -z "$MODULE_DIR" ]; then
+		for candidate in /vendor/lib/modules /system/lib/modules /lib/modules; do
+			[ -d "$candidate" ] || continue
+			MODULE_DIR="$candidate"
+			break
+		done
+	fi
+	if [ -z "$MODULE_PATH" ]; then
+		for candidate in \
+			"$MODULE_DIR/${MODULE_NAME}.ko" \
+			"$MODULE_DIR/kernel/drivers/staging/qcacld-3.0/${MODULE_NAME}.ko" \
+			/data/adb/modules/qcacld_autoload/${MODULE_NAME}.ko \
+			/data/adb/modules/qcacld_autoload/system/lib/modules/kernel/drivers/staging/qcacld-3.0/${MODULE_NAME}.ko \
+			/vendor/lib/modules/${MODULE_NAME}.ko \
+			/vendor/lib/modules/kernel/drivers/staging/qcacld-3.0/${MODULE_NAME}.ko \
+			/system/lib/modules/${MODULE_NAME}.ko \
+			/system/lib/modules/kernel/drivers/staging/qcacld-3.0/${MODULE_NAME}.ko \
+			/lib/modules/${MODULE_NAME}.ko; do
+			[ -f "$candidate" ] || continue
+			MODULE_PATH="$candidate"
+			break
+		done
+	fi
 
 	module_loaded() {
 		grep -q "^${MODULE_NAME} " /proc/modules 2>/dev/null || [ -d "/sys/module/${MODULE_NAME}" ]
@@ -91,7 +115,9 @@ reload_qcacld() {
 		module_loaded && die "${MODULE_NAME} masih ter-load setelah unload"
 	fi
 
-	if [ -n "$MODPROBE_BIN" ]; then
+	if [ -n "$MODULE_PATH" ] && [ "$MODULE_PATH" != "$MODULE_DIR/${MODULE_NAME}.ko" ] && [ -n "$INSMOD_BIN" ]; then
+		"$INSMOD_BIN" "$MODULE_PATH" || die "gagal load ${MODULE_PATH}"
+	elif [ -n "$MODPROBE_BIN" ]; then
 		"$MODPROBE_BIN" "$MODULE_NAME" || die "gagal load ${MODULE_NAME}"
 	elif [ -n "$INSMOD_BIN" ] && [ -n "$MODULE_PATH" ]; then
 		"$INSMOD_BIN" "$MODULE_PATH" || die "gagal load ${MODULE_PATH}"

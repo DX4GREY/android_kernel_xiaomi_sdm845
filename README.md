@@ -8,7 +8,7 @@ Kernel Linux 4.9 untuk Xiaomi POCO F1/Beryllium berbasis Snapdragon 845 dengan d
 - Monitor mode dan frame injection pada driver Qualcomm WLAN.
 - Teardown monitor-vdev yang diserialisasi untuk menghindari firmware assertion saat monitor mode dihentikan.
 - `qcacld-3.0` dibangun sebagai `wlan.ko`, bukan built-in kernel.
-- `wlan.ko` dimuat otomatis melalui `modules.load` pada paket AnyKernel.
+- `wlan.ko` dipasang sebagai modul Magisk dan dimuat oleh `service.sh` saat boot.
 - Wrapper `airmon-ng` yang me-reset module `wlan` setelah `airmon-ng stop wlan0`.
 - GitHub Actions untuk build kernel dan paket AnyKernel3.
 
@@ -29,7 +29,7 @@ Untuk build lokal, toolchain default yang dipakai script adalah:
 Ubuntu/Debian disarankan. Paket minimum:
 
 ```sh
-sudo apt install bc bison device-tree-compiler flex libelf-dev \
+sudo apt install bc bison device-tree-compiler flex kmod libelf-dev \
     libncurses-dev libssl-dev rsync unzip zip
 ```
 
@@ -84,41 +84,48 @@ rm -rf include/config .config
 
 ```sh
 export AARCH64_STRIP="$TOOLCHAIN/bin/aarch64-linux-gnu-strip"
-./make-anykernel.sh --with-modules
+./make-anykernel.sh
 ```
 
-ZIP dibuat di `out-anykernel/AnyKernel3-beryllium-*.zip` dan berisi `Image.gz-dtb`, semua module hasil `modules_install`, `modules.load`, serta `tools/airmon-ng-qcacld`.
+ZIP AnyKernel hanya berisi `Image.gz-dtb` dan `tools/airmon-ng-qcacld`. AnyKernel tidak memasang dan tidak membawa modul Magisk.
 
-Default lokasi module adalah `system_root`, yang dipasang sebagai `/system/lib/modules` oleh installer NetHunter. Jika ROM mengharuskan module vendor:
+Modul Magisk dibuat dan dipasang terpisah. Jika OrangeFox belum membuka `/data`, decrypt dahulu melalui `fox decrypt` atau menu Mount/Data sebelum memasang ZIP Magisk.
 
 ```sh
-MODULE_DEST=vendor ./make-anykernel.sh --with-modules
+./build-magisk-module.sh
 ```
 
-## Autoload `wlan.ko`
+Perintah tersebut menjalankan `modules_install`, memasukkan seluruh `.ko` hasil build beserta metadata dependency ke ZIP module Magisk standalone di `out-magisk/qcacld_autoload-*.zip`. `modules.load` hanya memuat `wlan` saat boot; module lain tetap tersedia untuk dimuat manual/modprobe.
 
-`make-anykernel.sh` membuat dua daftar load:
+## Autoload `wlan.ko` melalui Magisk
+
+Isi module Magisk:
 
 ```text
-lib/modules/modules.load
-lib/modules/<kernel-release>/modules.load
+/data/adb/modules/qcacld_autoload/module.prop
+/data/adb/modules/qcacld_autoload/service.sh
+/data/adb/modules/qcacld_autoload/system/lib/modules/kernel/drivers/staging/qcacld-3.0/wlan.ko
+/data/adb/modules/qcacld_autoload/system/lib/modules/modules.load
+/data/adb/modules/qcacld_autoload/system/lib/modules/<semua-module-kernel>.ko
 ```
 
-Keduanya memuat module `wlan`. Android init/modprobe pada ROM yang mendukung loadable kernel modules akan membaca daftar tersebut saat boot.
-
-Referensi mekanisme Android: [AOSP — Loadable kernel modules](https://source.android.com/docs/core/architecture/kernel/loadable-kernel-modules).
+Folder `system/lib/modules` adalah overlay systemless Magisk, sehingga seluruh module muncul di `/system/lib/modules/`, termasuk `modules.load`, `modules.dep`, dan metadata lainnya. `wlan.ko` mengikuti layout kernel di `/system/lib/modules/kernel/drivers/staging/qcacld-3.0/wlan.ko`. `service.sh` membaca module dari lokasi tersebut dan mencoba `insmod`; jika gagal, script mencoba `modprobe` dari `/system/lib/modules` lalu `/vendor/lib/modules`.
 
 Verifikasi setelah boot:
 
 ```sh
-cat /system/lib/modules/modules.load
+cat /data/adb/modules/qcacld_autoload/module.prop
+ls -l /system/lib/modules/kernel/drivers/staging/qcacld-3.0/wlan.ko \
+    /system/lib/modules/modules.load
+find /system/lib/modules -name '*.ko' | wc -l
 cat /proc/modules | grep '^wlan[[:space:] ]'
+logcat -b all -d | grep -i qcacld
 ```
 
-Jika `wlan` belum ter-load dan ROM tidak menjalankan `modprobe -a` saat boot, muat manual untuk pengujian:
+Jika `wlan` belum ter-load, uji manual:
 
 ```sh
-modprobe wlan
+su -c 'insmod /system/lib/modules/kernel/drivers/staging/qcacld-3.0/wlan.ko'
 ```
 
 ## Wrapper `airmon-ng`
@@ -193,7 +200,7 @@ Output berada di `out-headers/`.
 
 ## GitHub Actions
 
-Workflow berada di `.github/workflows/build-beryllium.yml`. Workflow akan mengambil Cosmic Clang pada commit yang dipin, membuat image dan module, memastikan `CONFIG_QCA_CLD_WLAN=m`, memeriksa `wlan.ko` dan `modules.load`, lalu mengunggah ZIP AnyKernel3.
+Workflow berada di `.github/workflows/build-beryllium.yml`. Workflow akan mengambil Cosmic Clang pada commit yang dipin, membuat image dan `wlan.ko`, memastikan `CONFIG_QCA_CLD_WLAN=m`, memvalidasi ZIP AnyKernel3, lalu mengunggah tiga artifact: image kernel, ZIP AnyKernel3, dan ZIP module Magisk standalone.
 
 ## Debugging
 

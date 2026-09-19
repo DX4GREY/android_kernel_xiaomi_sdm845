@@ -30,8 +30,10 @@ on:
       - 'nethunter.config'
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
+      - 'build-magisk-module.sh'
       - 'make-anykernel.sh'
       - 'tools/airmon-ng-qcacld'
+      - 'tools/magisk-qcacld/**'
   pull_request:
     branches:
       - lineage-22.2
@@ -57,8 +59,10 @@ on:
       - 'nethunter.config'
       - '.github/workflows/build-beryllium.yml'
       - 'build-beryllium.sh'
+      - 'build-magisk-module.sh'
       - 'make-anykernel.sh'
       - 'tools/airmon-ng-qcacld'
+      - 'tools/magisk-qcacld/**'
 
 permissions:
   contents: read
@@ -85,6 +89,7 @@ jobs:
             bison \
             device-tree-compiler \
             flex \
+            kmod \
             libelf-dev \
             libncurses-dev \
             libssl-dev \
@@ -160,9 +165,21 @@ jobs:
           AARCH64_STRIP: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-strip
           ZIP_NAME: AnyKernel3-beryllium-${{ github.sha }}.zip
         run: |
-          ./make-anykernel.sh --with-modules
-          unzip -p "out-anykernel/AnyKernel3-beryllium-${GITHUB_SHA}.zip" \
-            modules/system_root/lib/modules/modules.load | grep -qx wlan
+          BUILD_OUT="${{ github.workspace }}/out-beryllium" \
+            MAGISK_OUTPUT="${{ github.workspace }}/out-magisk" \
+            AARCH64_STRIP="${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-strip" \
+            ZIP_NAME="qcacld-autoload-${GITHUB_SHA}.zip" \
+            ./build-magisk-module.sh
+          test "$(find out-magisk/qcacld_autoload-staging/system/lib/modules -type f -name '*.ko' | wc -l)" \
+            -eq "$(find out-beryllium -type f -name '*.ko' | wc -l)"
+          test -s out-magisk/qcacld_autoload-staging/system/lib/modules/kernel/drivers/staging/qcacld-3.0/wlan.ko
+          grep -qx wlan out-magisk/qcacld_autoload-staging/system/lib/modules/modules.load
+          ./make-anykernel.sh
+          if unzip -l "out-anykernel/AnyKernel3-beryllium-${GITHUB_SHA}.zip" \
+              | grep -qE 'magisk-qcacld|magisk-module/qcacld-autoload'; then
+            echo "AnyKernel tidak boleh memasang atau membawa modul Magisk" >&2
+            exit 1
+          fi
 
       - name: Upload kernel image
         uses: actions/upload-artifact@v4
@@ -177,5 +194,13 @@ jobs:
         with:
           name: AnyKernel3-beryllium-${{ github.sha }}
           path: out-anykernel/AnyKernel3-beryllium-${{ github.sha }}.zip
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload standalone Magisk module
+        uses: actions/upload-artifact@v4
+        with:
+          name: qcacld-autoload-${{ github.sha }}
+          path: out-magisk/qcacld-autoload-${{ github.sha }}.zip
           if-no-files-found: error
           retention-days: 14
