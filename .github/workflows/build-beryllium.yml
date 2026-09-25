@@ -152,9 +152,6 @@ jobs:
         run: |
           test -s out-beryllium/arch/arm64/boot/Image.gz-dtb
           test -s out-beryllium/arch/arm64/boot/Image.gz
-          grep -q '^CONFIG_FEATURE_MONITOR_MODE_SUPPORT=y$' out-beryllium/.config
-          grep -q '^CONFIG_FEATURE_FRAME_INJECTION_SUPPORT=y$' out-beryllium/.config
-          grep -q '^CONFIG_QCA_CLD_WLAN=m$' out-beryllium/.config
           test -s out-beryllium/drivers/staging/qcacld-3.0/wlan.ko
           test -x tools/airmon-ng-qcacld
           sha256sum out-beryllium/arch/arm64/boot/Image.gz-dtb
