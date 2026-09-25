@@ -9,6 +9,7 @@ NETHUNTER_CONFIG="${NETHUNTER_CONFIG:-${ROOT_DIR}/nethunter.config}"
 BUILD_TARGETS=(Image.gz-dtb modules)
 NO_CLEAN=0
 NO_SETUP=0
+MAKE_OPTIONS=()
 
 while (($#)); do
     case "$1" in
@@ -21,13 +22,27 @@ while (($#)); do
         --no-setup)
             NO_SETUP=1
             ;;
+        --make-option)
+            if (($# < 2)); then
+                echo "Error: --make-option membutuhkan satu nilai" >&2
+                echo "Gunakan: $0 --help" >&2
+                exit 1
+            fi
+            MAKE_OPTIONS+=("$2")
+            shift 2
+            continue
+            ;;
+        --make-option=*)
+            MAKE_OPTIONS+=("${1#*=}")
+            ;;
         -h|--help)
-            echo "Usage: $0 [--kernel-only] [--no-clean] [--no-setup]"
+            echo "Usage: $0 [--kernel-only] [--no-clean] [--no-setup] [--make-option OPT]"
             echo
-            echo "  tanpa opsi       Build Image.gz-dtb dan modules"
-            echo "  --kernel-only    Build Image.gz-dtb saja"
-            echo "  --no-clean       Pertahankan output build sebelumnya"
-            echo "  --no-setup       Jangan source ../setup.sh; gunakan environment aktif"
+            echo "  tanpa opsi          Build Image.gz-dtb dan modules"
+            echo "  --kernel-only       Build Image.gz-dtb saja"
+            echo "  --no-clean          Pertahankan output build sebelumnya"
+            echo "  --no-setup          Jangan source ../setup.sh; gunakan environment aktif"
+            echo "  --make-option OPT   Tambahkan opsi ekstra ke make (bisa diulang)"
             exit 0
             ;;
         *)
@@ -136,6 +151,9 @@ MAKE_ARGS=(
 echo "==> Output: ${BUILD_OUT}"
 echo "==> Parallel jobs: ${JOBS}"
 echo "==> Target build: ${BUILD_TARGETS[*]}"
+if ((${#MAKE_OPTIONS[@]} > 0)); then
+    echo "==> Opsi make tambahan: ${MAKE_OPTIONS[*]}"
+fi
 if (( NO_CLEAN )); then
     echo "==> Clean dilewati; output build sebelumnya dipertahankan"
 else
@@ -143,7 +161,7 @@ else
 fi
 echo "==> Menyiapkan konfigurasi Beryllium..."
 
-make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" vendor/xiaomi/mi845_defconfig
+make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" "${MAKE_OPTIONS[@]}" vendor/xiaomi/mi845_defconfig
 
 "${ROOT_DIR}/scripts/kconfig/merge_config.sh" \
     -m -r \
@@ -152,7 +170,7 @@ make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" vendor/xiaomi/mi845_defconfig
     "${ROOT_DIR}/arch/arm64/configs/vendor/xiaomi/beryllium.config" \
     "${NETHUNTER_CONFIG}"
 
-make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" olddefconfig
+make -C "${ROOT_DIR}" "${MAKE_ARGS[@]}" "${MAKE_OPTIONS[@]}" olddefconfig
 
 if ! grep -q '^CONFIG_QCA_CLD_WLAN=m$' "${BUILD_OUT}/.config"; then
     echo "Error: qcacld-3.0 harus dibangun sebagai CONFIG_QCA_CLD_WLAN=m." >&2
@@ -163,6 +181,7 @@ echo "==> Memulai build kernel..."
 make -C "${ROOT_DIR}" \
     -j"${JOBS}" \
     "${MAKE_ARGS[@]}" \
+    "${MAKE_OPTIONS[@]}" \
     "${BUILD_TARGETS[@]}"
 
 if [[ " ${BUILD_TARGETS[*]} " == *" modules "* ]] && \
