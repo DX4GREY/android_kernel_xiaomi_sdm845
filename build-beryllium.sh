@@ -6,7 +6,7 @@ ROOT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 SETUP_SCRIPT="${ROOT_DIR}/../setup.sh"
 NETHUNTER_CONFIG="${NETHUNTER_CONFIG:-${ROOT_DIR}/nethunter.config}"
 
-BUILD_TARGETS=(Image.gz-dtb modules)
+BUILD_TARGETS=(Image.gz Image.gz-dtb modules)
 NO_CLEAN=0
 NO_SETUP=0
 MAKE_OPTIONS=()
@@ -38,7 +38,7 @@ while (($#)); do
         -h|--help)
             echo "Usage: $0 [--kernel-only] [--no-clean] [--no-setup] [--make-option OPT]"
             echo
-            echo "  tanpa opsi          Build Image.gz-dtb dan modules"
+            echo "  tanpa opsi          Build Image.gz, Image.gz-dtb, dan modules"
             echo "  --kernel-only       Build Image.gz-dtb saja"
             echo "  --no-clean          Pertahankan output build sebelumnya"
             echo "  --no-setup          Jangan source ../setup.sh; gunakan environment aktif"
