@@ -76,6 +76,17 @@ jobs:
     name: Build kernel and AnyKernel3 package
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    env:
+      BUILD_OUT: ${{ github.workspace }}/out-beryllium
+      AARCH64_LD: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-ld.bfd
+      AARCH64_OBJCOPY: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-objcopy
+      AARCH64_STRIP: ${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-strip
+      ARM32_PREFIX: ${{ github.workspace }}/toolchains/cosmic-clang/bin/arm-linux-gnueabi-
+      CC: clang
+      CROSS_COMPILE: aarch64-linux-gnu-
+      CROSS_COMPILE_ARM32: arm-linux-gnueabi-
+      MIN_FREE_GB: 8
+      KCFLAGS: -Wno-error=enum-conversion -Wno-error=self-assign -Wno-error=varargs
 
     steps:
       - name: Checkout source
@@ -125,6 +136,7 @@ jobs:
           test -x "$TOOLCHAIN/bin/clang"
           test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-ld.bfd"
           test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-objcopy"
+          test -x "$TOOLCHAIN/bin/aarch64-linux-gnu-strip"
           test -x "$TOOLCHAIN/bin/arm-linux-gnueabi-ld.bfd"
           "$TOOLCHAIN/bin/clang" --version
 
@@ -165,6 +177,12 @@ jobs:
           BUILD_OUT="${{ github.workspace }}/out-beryllium" \
             MAGISK_OUTPUT="${{ github.workspace }}/out-magisk" \
             AARCH64_STRIP="${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-strip" \
+            AARCH64_LD="${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-ld.bfd" \
+            AARCH64_OBJCOPY="${{ github.workspace }}/toolchains/cosmic-clang/bin/aarch64-linux-gnu-objcopy" \
+            ARM32_PREFIX="${{ github.workspace }}/toolchains/cosmic-clang/bin/arm-linux-gnueabi-" \
+            CC="clang" \
+            CROSS_COMPILE="aarch64-linux-gnu-" \
+            CROSS_COMPILE_ARM32="arm-linux-gnueabi-" \
             ZIP_NAME="qcacld-autoload-${GITHUB_SHA}.zip" \
             ./build-magisk-module.sh
           test "$(find out-magisk/qcacld_autoload-staging/system/lib/modules -type f -name '*.ko' | wc -l)" \

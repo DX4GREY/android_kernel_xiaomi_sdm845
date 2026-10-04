@@ -62,7 +62,33 @@ KCFLAGS="${KCFLAGS:--Wno-error=enum-conversion -Wno-error=self-assign -Wno-error
 # Toolchain overrides. The default paths match this workspace.
 AARCH64_LD="${AARCH64_LD:-/usr/bin/aarch64-linux-gnu-ld.bfd}"
 ARM32_PREFIX="${ARM32_PREFIX:-/usr/bin/arm-linux-gnueabi-}"
+if [[ -z "${AARCH64_LD:-}" ]]; then
+    if command -v aarch64-linux-gnu-ld.bfd >/dev/null 2>&1; then
+        AARCH64_LD="$(command -v aarch64-linux-gnu-ld.bfd)"
+    else
+        AARCH64_LD="/usr/bin/aarch64-linux-gnu-ld.bfd"
+    fi
+elif [[ "${AARCH64_LD}" != /* ]] && command -v "${AARCH64_LD}" >/dev/null 2>&1; then
+    AARCH64_LD="$(command -v "${AARCH64_LD}")"
+fi
+
+if [[ -z "${ARM32_PREFIX:-}" ]]; then
+    if command -v arm-linux-gnueabi-ld.bfd >/dev/null 2>&1; then
+        arm32_ld="$(command -v arm-linux-gnueabi-ld.bfd)"
+        ARM32_PREFIX="${arm32_ld%ld.bfd}"
+    else
+        ARM32_PREFIX="/usr/bin/arm-linux-gnueabi-"
+    fi
+elif [[ "${ARM32_PREFIX}" != /* ]] && command -v "${ARM32_PREFIX}ld.bfd" >/dev/null 2>&1; then
+    arm32_ld="$(command -v "${ARM32_PREFIX}ld.bfd")"
+    ARM32_PREFIX="${arm32_ld%ld.bfd}"
+fi
+
 AARCH64_OBJCOPY="${AARCH64_OBJCOPY:-${AARCH64_LD%ld.bfd}objcopy}"
+if [[ "${AARCH64_OBJCOPY}" != /* ]] && command -v "${AARCH64_OBJCOPY}" >/dev/null 2>&1; then
+    AARCH64_OBJCOPY="$(command -v "${AARCH64_OBJCOPY}")"
+fi
+
 
 if [[ "${BUILD_OUT}" != /* ]]; then
     BUILD_OUT="${ROOT_DIR}/${BUILD_OUT}"

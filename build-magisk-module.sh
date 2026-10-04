@@ -8,6 +8,49 @@ OUTPUT_DIR="${MAGISK_OUTPUT:-${ROOT_DIR}/out-magisk}"
 AARCH64_STRIP="${AARCH64_STRIP:-/usr/bin/aarch64-linux-gnu-strip}"
 
 for tool in cp date find make mkdir rm unzip zip; do
+ARCH="${ARCH:-arm64}"
+CC="${CC:-clang}"
+CROSS_COMPILE="${CROSS_COMPILE:-aarch64-linux-gnu-}"
+CROSS_COMPILE_ARM32="${CROSS_COMPILE_ARM32:-arm-linux-gnueabi-}"
+
+if [[ -z "${AARCH64_STRIP:-}" ]]; then
+    if command -v aarch64-linux-gnu-strip >/dev/null 2>&1; then
+        AARCH64_STRIP="$(command -v aarch64-linux-gnu-strip)"
+    else
+        AARCH64_STRIP="/usr/bin/aarch64-linux-gnu-strip"
+    fi
+elif [[ "${AARCH64_STRIP}" != /* ]] && command -v "${AARCH64_STRIP}" >/dev/null 2>&1; then
+    AARCH64_STRIP="$(command -v "${AARCH64_STRIP}")"
+fi
+
+if [[ -z "${AARCH64_LD:-}" ]]; then
+    if command -v aarch64-linux-gnu-ld.bfd >/dev/null 2>&1; then
+        AARCH64_LD="$(command -v aarch64-linux-gnu-ld.bfd)"
+    else
+        AARCH64_LD="/usr/bin/aarch64-linux-gnu-ld.bfd"
+    fi
+elif [[ "${AARCH64_LD}" != /* ]] && command -v "${AARCH64_LD}" >/dev/null 2>&1; then
+    AARCH64_LD="$(command -v "${AARCH64_LD}")"
+fi
+
+if [[ -z "${ARM32_PREFIX:-}" ]]; then
+    if command -v arm-linux-gnueabi-ld.bfd >/dev/null 2>&1; then
+        arm32_ld="$(command -v arm-linux-gnueabi-ld.bfd)"
+        ARM32_PREFIX="${arm32_ld%ld.bfd}"
+    else
+        ARM32_PREFIX="/usr/bin/arm-linux-gnueabi-"
+    fi
+elif [[ "${ARM32_PREFIX}" != /* ]] && command -v "${ARM32_PREFIX}ld.bfd" >/dev/null 2>&1; then
+    arm32_ld="$(command -v "${ARM32_PREFIX}ld.bfd")"
+    ARM32_PREFIX="${arm32_ld%ld.bfd}"
+fi
+
+AARCH64_OBJCOPY="${AARCH64_OBJCOPY:-${AARCH64_LD%ld.bfd}objcopy}"
+if [[ "${AARCH64_OBJCOPY}" != /* ]] && command -v "${AARCH64_OBJCOPY}" >/dev/null 2>&1; then
+    AARCH64_OBJCOPY="$(command -v "${AARCH64_OBJCOPY}")"
+fi
+
+for tool in cp date find make mkdir rm unzip zip "$CC"; do
     command -v "$tool" >/dev/null 2>&1 || {
         echo "Error: command tidak ditemukan: $tool" >&2
         exit 1
@@ -15,6 +58,18 @@ for tool in cp date find make mkdir rm unzip zip; do
 done
 [[ -x "$AARCH64_STRIP" ]] || {
     echo "Error: AArch64 strip tidak ditemukan: $AARCH64_STRIP" >&2
+    exit 1
+}
+[[ -x "$AARCH64_LD" ]] || {
+    echo "Error: AArch64 linker tidak ditemukan: $AARCH64_LD" >&2
+    exit 1
+}
+[[ -x "$AARCH64_OBJCOPY" ]] || {
+    echo "Error: AArch64 objcopy tidak ditemukan: $AARCH64_OBJCOPY" >&2
+    exit 1
+}
+[[ -x "${ARM32_PREFIX}ld.bfd" ]] || {
+    echo "Error: ARM32 linker tidak ditemukan: ${ARM32_PREFIX}ld.bfd" >&2
     exit 1
 }
 
@@ -61,7 +116,30 @@ if ! make -C "$ROOT_DIR" \
         INSTALL_MOD_PATH="$KERNEL_MODULE_STAGE" \
         INSTALL_MOD_STRIP=1 \
         modules_install; then
+
+MAKE_ARGS=(
+    "O=${BUILD_OUT}"
+    "ARCH=${ARCH}"
+    "CC=${CC}"
+    "LLVM=1"
+    "LLVM_IAS=1"
+    "LD=${AARCH64_LD}"
+    "OBJCOPY=${AARCH64_OBJCOPY}"
+    "STRIP=${AARCH64_STRIP}"
+    "CROSS_COMPILE=${CROSS_COMPILE}"
+    "CROSS_COMPILE_ARM32=${CROSS_COMPILE_ARM32}"
+    "CLANG_PREFIX32=--prefix=${ARM32_PREFIX}"
+    "INSTALL_MOD_PATH=${KERNEL_MODULE_STAGE}"
+    "INSTALL_MOD_STRIP=1"
+)
+
+if ! make -C "$ROOT_DIR" "${MAKE_ARGS[@]}" modules_install; then
     echo "Warning: depmod kernel 4.9 mengembalikan status non-zero; memvalidasi hasil install." >&2
+fi
+
+if [[ ! -d "$KERNEL_MODULE_STAGE/lib/modules" ]]; then
+    echo "Error: direktori hasil modules_install tidak ditemukan: $KERNEL_MODULE_STAGE/lib/modules" >&2
+    exit 1
 fi
 
 MODULE_RELEASE_DIR="$(find "$KERNEL_MODULE_STAGE/lib/modules" \
