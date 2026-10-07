@@ -65,7 +65,7 @@ on:
       - 'tools/magisk-qcacld/**'
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: beryllium-kernel-${{ github.workflow }}-${{ github.ref }}
@@ -219,3 +219,18 @@ jobs:
           path: out-magisk/qcacld-autoload-${{ github.sha }}.zip
           if-no-files-found: error
           retention-days: 14
+
+      - name: Generate release tag
+        id: tag
+        run: echo "release_tag=v$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.release_tag }}
+          name: Beryllium NetHunter Kernel ${{ steps.tag.outputs.release_tag }}
+          files: |
+            out-beryllium/arch/arm64/boot/Image.gz-dtb
+            out-anykernel/AnyKernel3-beryllium-${{ github.sha }}.zip
+            out-magisk/qcacld-autoload-${{ github.sha }}.zip
